@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import Principal
 from app.semantic.catalog import catalog
-from app.semantic.query import Period, QuerySpec, SpecError, check, compile_group, month_range
+from app.semantic.query import Period, QuerySpec, SpecError, _excluded, check, compile_group, month_range
 
 TOP = 8
 
@@ -56,7 +56,8 @@ def explain_change(db: Session, p: Principal, metric_key: str, by: str, base: di
         return {"metric": metric.label, "unit": metric.unit, "by": label, "base": _label(base), "current": _label(current),
                 "before": round(total0), "after": round(total1), "change": round(total1 - total0),
                 "groups": [{k: round(v) if isinstance(v, float) else v for k, v in g.items()} for g in groups[:TOP]],
-                "method": f"{metric.label}為加總型指標，變化＝各{label}增減的合計", "basis": metric.basis}
+                "method": f"{metric.label}為加總型指標，變化＝各{label}增減的合計", "basis": metric.basis,
+                "excluded": _excluded_both(db, spec, p, metric, base, current)}
 
     den0, den1 = sum(d for _, d in a.values()), sum(d for _, d in b.values())
     if not den0 or not den1:
@@ -92,7 +93,15 @@ def explain_change(db: Session, p: Principal, metric_key: str, by: str, base: di
         "method": (f"整體{metric.label}變化＝組合效應（各{label}占比改變）＋比率效應（各{label}自己的{metric.label}改變）；"
                    f"占比以{metric.label}的分母計算"),
         "basis": metric.basis,
+        "excluded": _excluded_both(db, spec, p, metric, base, current),
     }
+
+
+def _excluded_both(db: Session, spec: QuerySpec, p: Principal, metric, base: dict, current: dict) -> list[dict]:
+    """基期加本期範圍內被清理排除的筆數，回答時一併說明。"""
+    d0, _ = month_range(min(base["from"], current["from"]), min(base["from"], current["from"]))
+    _, d1 = month_range(max(base["to"], current["to"]), max(base["to"], current["to"]))
+    return _excluded(db, spec, p, [metric], d0, d1)
 
 
 def _label(p: dict) -> str:
