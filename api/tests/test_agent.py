@@ -118,3 +118,12 @@ def test_numbers_without_any_tool_data_are_withheld(db):
     llm = FakeLLM(["VN-SMT2 良率 95.8%。", "VN-SMT2 良率 95.8%。", "VN-SMT2 良率 93.3%。", "VN-SMT2 良率 93.3%。"])
     r = run_chat(db, llm, load_principal(db, "tw.smt1.lead"), "VN-SMT2 上個月良率是多少？")
     assert not r.grounding_ok and "95.8" not in r.answer and "93.3" not in r.answer
+
+
+def test_claims_without_any_tool_are_withheld(db):
+    # 沒有數字的結論（「東莞廠最高」）數字核對抓不到；沒查資料就談指標，同樣不給使用者
+    llm = FakeLLM(["東莞廠良率最高。", "東莞廠良率最高。", "東莞廠良率最高。", "東莞廠良率最高。"])
+    r = run_chat(db, llm, load_principal(db, "gm"), "上個月各廠良率排名？")
+    assert not r.grounding_ok and "東莞" not in r.answer
+    llm = FakeLLM(["你想看哪一段期間的良率？", "你想看哪一段期間的良率？"])
+    assert run_chat(db, llm, load_principal(db, "gm"), "良率怎麼樣？").grounding_ok

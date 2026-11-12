@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.agent import audit
-from app.agent.grounding import ungrounded
+from app.agent.grounding import ungrounded, untooled_claim
 from app.agent.llm import LLMClient, Usage
 from app.agent.prompts import SYSTEM_STATIC, system_dynamic
 from app.agent.tools import ToolContext, ToolOutcome, run_tool, specs
@@ -109,15 +109,19 @@ def run_chat(db: Session, client: LLMClient, p: Principal, question: str, conver
     alias = force_alias or "fast"
     attempts = [_attempt(client, ctx, alias, dyn, history, question)]
     sources = lambda at: [question, dyn] + [o.json for o in at.outcomes]  # noqa: E731
-    bad = ungrounded(attempts[-1].answer, sources(attempts[-1]))
+
+    def check(at: Attempt) -> list[str]:
+        return ungrounded(at.answer, sources(at)) + (["no_data"] if untooled_claim(at.answer, bool(at.outcomes)) else [])
+
+    bad = check(attempts[-1])
     escalated = bool(bad) and alias == "fast" and not force_alias
     if escalated:
         attempts.append(_attempt(client, ctx, "strong", dyn, history, question))
-        bad = ungrounded(attempts[-1].answer, sources(attempts[-1]))
+        bad = check(attempts[-1])
     final = attempts[-1]
     # 沒有任何工具成功回傳資料，卻寫出核對不到的數字：那些數字只可能是編的，整段不給使用者
     fabricated = bool(bad) and not any(not (o.error or o.denied) for o in final.outcomes)
-    if "placeholder" in bad or fabricated:
+    if "placeholder" in bad or "no_data" in bad or fabricated:
         final.answer = UNSAFE_TEXT
     elif bad:
         final.answer += UNVERIFIED_NOTE

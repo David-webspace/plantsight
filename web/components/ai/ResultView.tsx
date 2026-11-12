@@ -38,7 +38,7 @@ function QueryChart({ data }: { data: QueryResult }) {
   const metric = data.metrics[0];
   const dims = data.columns.filter((c) => !c.unit && !c.key.endsWith("_name")).map((c) => c.key);
   const group = dims.find((d) => d !== "period");
-  if (data.grain !== "total" && dims.includes("period")) {
+  if (data.grain !== "total" && dims.includes("period") && new Set(data.rows.map((r) => String(r.period))).size > 1) {
     // 趨勢：每個分組一條線（最多 6 條），沒有分組就一條
     const keys = group ? [...new Set(data.rows.map((r) => String(r[group])))].slice(0, 6) : [metric.key];
     const periods = [...new Set(data.rows.map((r) => String(r.period)))].sort();
@@ -64,12 +64,20 @@ function QueryChart({ data }: { data: QueryResult }) {
   }
   if (!group || data.rows.length < 2) return null;
   const compare = data.compare ? `${metric.key}__compare` : null;
+  const groups = dims.filter((d) => d !== "period");
+  const rows = data.rows.map((r) => ({ ...r, __label: groups.map((d) => String(r[d])).join(" · ") }));
+  // 數值很接近時（良率 96 vs 97）從 0 起畫看不出差異；從資料自動縮放又會讓最短的條幾乎消失。
+  // 下限往下留一個全距，百分比上限不超過 100。
+  const values = data.rows.flatMap((r) => [r[metric.key], compare ? r[compare] : null]).filter((v): v is number => typeof v === "number");
+  const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || Math.abs(hi) * 0.1 || 1;
+  const floor = lo >= 0 && lo - span <= 0 ? 0 : lo - span;
+  const ceil = metric.unit === "%" ? Math.min(100, hi + span * 0.1) : hi + span * 0.1;
   return (
-    <ResponsiveContainer width="100%" height={Math.max(140, data.rows.length * 28)}>
-      <BarChart data={data.rows} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
+    <ResponsiveContainer width="100%" height={Math.max(140, rows.length * 28)}>
+      <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 8 }}>
         <CartesianGrid stroke="#e3e8ee" horizontal={false} />
-        <XAxis type="number" tick={AXIS} domain={["auto", "auto"]} />
-        <YAxis type="category" dataKey={group} tick={AXIS} width={72} />
+        <XAxis type="number" tick={AXIS} domain={[floor, ceil]} allowDataOverflow tickFormatter={(v: number) => num(v, span < 5 ? 1 : 0)} />
+        <YAxis type="category" dataKey="__label" tick={AXIS} width={groups.length > 1 ? 120 : 72} />
         <Tooltip formatter={(v) => withUnit(v as number, metric.unit)} />
         {compare && <Bar dataKey={compare} name="比較" fill="#cfd6de" barSize={8} />}
         <Bar dataKey={metric.key} name={metric.label} fill="#2b5d8a" barSize={compare ? 8 : 14} />

@@ -23,6 +23,15 @@ def numbers(text: str) -> set[str]:
 PLACEHOLDER = re.compile(r"[\[【［][^\]】］]{0,20}(數值|結果|餘額|金額|日期|時數)[^\]】］]{0,20}[\]】］]")
 
 
+# 完全沒查資料卻在談指標：除非是拒絕或反問，否則就是憑空下結論（數字檢查抓不到「東莞廠最高」這種沒有數字的說法）
+METRIC_WORDS = re.compile(r"良率|直通率|不良率|準交率|進料不良|報廢|出貨量|投入數")
+DECLINE = re.compile(r"權限|範圍|無法|不能|不會提供|看不到|[?？]")
+
+
+def untooled_claim(answer: str, called_tools: bool) -> bool:
+    return not called_tools and bool(METRIC_WORDS.search(answer)) and not DECLINE.search(answer)
+
+
 def ungrounded(answer: str, sources: list[str]) -> list[str]:
     """回傳有問題的片段；空 list 代表通過。"""
     problems: list[str] = []
