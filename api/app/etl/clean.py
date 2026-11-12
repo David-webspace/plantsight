@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app import models as m
 from app.auth import DEMO_USERS
+from app.security import hash_password
 from app.config import settings
 from app.db import SessionLocal
 
@@ -244,8 +245,11 @@ def run_cleaning(db: Session) -> dict:
         db.execute(insert(model), rows)
 
     for username, name, role, kind, value in DEMO_USERS:
-        db.execute(text("""INSERT INTO users (username, name, role, scope_kind, scope_value) VALUES (:u, :n, :r, :k, :v)
-                           ON CONFLICT (username) DO NOTHING"""), {"u": username, "n": name, "r": role, "k": kind, "v": value})
+        pw = hash_password(settings.seed_demo_password) if settings.seed_demo_password else None
+        db.execute(text("""INSERT INTO users (username, name, role, scope_kind, scope_value, password_hash)
+                           VALUES (:u, :n, :r, :k, :v, :pw)
+                           ON CONFLICT (username) DO UPDATE SET password_hash = COALESCE(users.password_hash, EXCLUDED.password_hash)"""),
+                   {"u": username, "n": name, "r": role, "k": kind, "v": value, "pw": pw})
 
     for item in run.reviews.values():
         db.execute(text("""

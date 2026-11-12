@@ -1,10 +1,21 @@
 """身分與角色。角色決定能看的指標來源、敏感名稱與機密指標；範圍決定能看哪些廠區、事業群或產線。"""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
+import jwt
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.config import settings
+from app.db import get_db
 from app.models import User
+from app.security import hash_password, verify_password
+
+COOKIE = "plantsight_session"
+LOGIN_FAILED = "帳號或密碼錯誤"
+# 帳號不存在時仍做一次雜湊比對，避免用回應時間差判斷帳號是否存在
+_DUMMY_HASH = hash_password("timing-equalizer")
 
 
 @dataclass(frozen=True)
@@ -56,7 +67,38 @@ def load_principal(db: Session, username: str) -> Principal:
     return Principal(u.username, u.name, u.role, u.scope_kind, u.scope_value)
 
 
-# 示範帳號；密碼在 M4 加上登入時再設定
+def authenticate(db: Session, username: str, password: str) -> str | None:
+    u = db.get(User, username)
+    ok = verify_password(password, u.password_hash if u and u.password_hash else _DUMMY_HASH)
+    return u.username if u and u.password_hash and ok else None
+
+
+def issue_token(username: str) -> str:
+    now = datetime.now(UTC)
+    return jwt.encode({"sub": username, "iat": now, "exp": now + timedelta(hours=settings.jwt_ttl_hours)},
+                      settings.jwt_secret, algorithm="HS256")
+
+
+def current_principal(request: Request, db: Session = Depends(get_db)) -> Principal:
+    token = request.cookies.get(COOKIE)
+    if not token:
+        raise HTTPException(401, "請先登入")
+    try:
+        claims = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        return load_principal(db, claims["sub"])
+    except (jwt.PyJWTError, LookupError):
+        raise HTTPException(401, "請重新登入")
+
+
+def require_role(*roles: str):
+    def dep(p: Principal = Depends(current_principal)) -> Principal:
+        if p.role not in roles:
+            raise HTTPException(403, "沒有這個頁面的權限")
+        return p
+    return dep
+
+
+# 示範帳號（密碼為 SEED_DEMO_PASSWORD，第一次清理資料時寫入）
 DEMO_USERS = [
     ("gm", "Grace Morgan", "ceo", "all", None),
     ("pwr.head", "Ethan Park", "bg_head", "business_group", "PWR"),

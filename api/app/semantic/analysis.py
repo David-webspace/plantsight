@@ -53,7 +53,7 @@ def explain_change(db: Session, p: Principal, metric_key: str, by: str, base: di
             g["change"] = g["after"] - g["before"]
         total0, total1 = sum(g["before"] for g in groups), sum(g["after"] for g in groups)
         groups.sort(key=lambda g: -abs(g["change"]))
-        return {"metric": metric.label, "unit": metric.unit, "by": label, "base": _label(base), "current": _label(current),
+        return {"metric": metric.label, "unit": metric.unit, "by": label, "by_key": by, "base": _label(base), "current": _label(current),
                 "before": round(total0), "after": round(total1), "change": round(total1 - total0),
                 "groups": [{k: round(v) if isinstance(v, float) else v for k, v in g.items()} for g in groups[:TOP]],
                 "method": f"{metric.label}為加總型指標，變化＝各{label}增減的合計", "basis": metric.basis,
@@ -84,7 +84,7 @@ def explain_change(db: Session, p: Principal, metric_key: str, by: str, base: di
     unit = "百分點" if metric.unit == "%" else metric.unit
     driver = "組合效應" if abs(mix) > abs(rate) else "比率效應"
     return {
-        "metric": metric.label, "unit": metric.unit, "effect_unit": unit, "by": label,
+        "metric": metric.label, "unit": metric.unit, "effect_unit": unit, "by": label, "by_key": by,
         "base": _label(base), "current": _label(current),
         "before": round(total0, metric.decimals), "after": round(total1, metric.decimals),
         "change": round(total1 - total0, nd), "mix_effect": round(mix, nd), "rate_effect": round(rate, nd),

@@ -11,12 +11,17 @@ dependencies = [
     "pydantic>=2.9",
     "anthropic>=2.7.0",
     "openai>=3.49.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pyjwt>=2.15.1",
+    "openpyxl>=3.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "pandas>=2.2",
+    "httpx>=0.28.1",
 ]
 
 [tool.pytest.ini_options]

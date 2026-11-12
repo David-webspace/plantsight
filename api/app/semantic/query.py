@@ -349,10 +349,11 @@ def run_query(db: Session, spec: QuerySpec, p: Principal) -> dict:
         for r in out:
             r[f"{d}_name"] = attr.get(r[d])
     for m in metrics:
-        columns.append({"key": m.key, "label": m.label, "unit": m.unit})
+        columns.append({"key": m.key, "label": m.label, "unit": m.unit, "decimals": m.decimals})
         if spec.compare:
-            columns.append({"key": f"{m.key}__compare", "label": f"{m.label}（比較）", "unit": m.unit})
-            columns.append({"key": f"{m.key}__delta", "label": f"{m.label}差異", "unit": "百分點" if m.unit == "%" else m.unit})
+            columns.append({"key": f"{m.key}__compare", "label": f"{m.label}（比較）", "unit": m.unit, "decimals": m.decimals})
+            columns.append({"key": f"{m.key}__delta", "label": f"{m.label}差異", "unit": "百分點" if m.unit == "%" else m.unit,
+                            "decimals": m.decimals})
         for r in out:
             for suffix in ("", "__compare", "__delta"):
                 if r.get(m.key + suffix) is not None:
@@ -362,7 +363,7 @@ def run_query(db: Session, spec: QuerySpec, p: Principal) -> dict:
         "columns": columns, "rows": out, "truncated": truncated,
         "period": f"{d0}～{d1}", "grain": spec.period.grain, "compare": compare_label,
         "scope": p.scope_text, "filters": spec.filters,
-        "metrics": [{"key": m.key, "label": m.label, "unit": m.unit, "basis": m.basis} for m in metrics],
+        "metrics": [{"key": m.key, "label": m.label, "unit": m.unit, "basis": m.basis, "decimals": m.decimals} for m in metrics],
         "excluded": _excluded(db, spec, p, metrics, d0, d1),
     }
 

@@ -159,7 +159,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16))
     scope_kind: Mapped[str] = mapped_column(String(16))
     scope_value: Mapped[str | None] = mapped_column(String(16))
-    password_hash: Mapped[str | None] = mapped_column(String(128))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
 
 
 class Conversation(Base):

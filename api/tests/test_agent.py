@@ -17,6 +17,14 @@ TW_SPEC = {"metrics": ["yield"], "group_by": ["line"], "filters": {"plant": ["TW
            "sort": {"by": "yield", "order": "asc"}, "limit": 1}
 
 
+@pytest.fixture(autouse=True)
+def model_names(monkeypatch):
+    # .env 可能把快、強模型設成同一個（例如本機只有一個模型）；測試固定兩個不同名稱，才驗得到「換強模型重答」
+    from app.config import settings
+    monkeypatch.setattr(settings, "llm_model_fast", "fast-model")
+    monkeypatch.setattr(settings, "llm_model_strong", "strong-model")
+
+
 @pytest.fixture
 def db():
     with SessionLocal() as s:

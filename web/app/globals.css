@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+/* Arcwell 廠務數據：產線看板的視覺語彙——冷灰底、鋼藍主色，綠／琥珀／紅只用來表示好壞 */
+@theme {
+  --color-paper: #eef1f4;
+  --color-sheet: #ffffff;
+  --color-ink: #131b25;
+  --color-muted: #5a6573;
+  --color-rule: #cfd6de;
+  --color-river: #2b5d8a;      /* 主色：鋼藍 */
+  --color-river-deep: #1d4467;
+  --color-river-wash: #e2ebf3;
+  --color-glow: #d99a1e;       /* 待確認、接近目標 */
+  --color-glow-wash: #fbf1dc;
+  --color-good: #2f8458;       /* 變好 */
+  --color-seal: #c2412d;       /* 變差、拒絕 */
+
+  --font-display: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-sans: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-river);
+  outline-offset: 2px;
+}
+
+/* 數字一律等寬，表格對得齊 */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
