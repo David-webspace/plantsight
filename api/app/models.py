@@ -162,6 +162,48 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(128))
 
 
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(ForeignKey("users.username"), index=True)
+    title: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Message(Base):
+    """只存問答文字與畫面要用的結果；meta 另存本輪的查詢規格，追問時沿用。"""
+
+    __tablename__ = "messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"), index=True)
+    role: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str] = mapped_column(Text)
+    meta: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    username: Mapped[str | None] = mapped_column(String(32), index=True)
+    role: Mapped[str | None] = mapped_column(String(16))
+    event: Mapped[str] = mapped_column(String(32))
+    question: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(64))
+    tools: Mapped[list | None] = mapped_column(JSONB)
+    denied: Mapped[bool] = mapped_column(default=False)
+    deny_reason: Mapped[str | None] = mapped_column(Text)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 6))
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    grounding_ok: Mapped[bool | None]
+    conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id"))
+
+
 class CleaningRun(Base):
     __tablename__ = "cleaning_runs"
     id: Mapped[int] = mapped_column(primary_key=True)

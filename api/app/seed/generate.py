@@ -3,7 +3,7 @@
 固定亂數種子，每次產生的內容完全相同。埋了三個「有故事」的事件，讓「為什麼」類問題有標準答案：
   E1 越南廠 VN-SMT2 自 2026-08 改用新錫膏供應商 S09：焊接不良上升、良率下降，進料不良率同時上升。
   E2 台灣廠電源產線 2026-09 起伺服器電源的工單比重由 25% 提高到 70%：整體良率下降，但各產品良率持平（組合效應）。
-  E3 東莞廠客戶 C07 在 2026-10 把交期提前 7 天：出貨照原計畫，準交率因此下降。
+  E3 東莞廠客戶 C07 在 2026-10 大量追加變壓器訂單並把交期提前 7 天：出貨照原計畫，東莞廠準交率因此下降。
 髒資料的種類與筆數寫進 data/raw/manifest.json，測試用來核對清理報告。
 """
 
@@ -118,9 +118,12 @@ def generate(rng: random.Random) -> dict[str, list[dict]]:
             targets.append({"scope": plant, "period": f"{y}-{m:02d}", "metric": "otd", "target_value": 0.95})
             for part in sorted(plant_parts[plant]):
                 fam = PARTS[part]
-                for _ in range(rng.randint(2, 4)):
-                    cust = rng.choice(FAMILY_CUSTOMERS[fam])
-                    original = date(y, m, rng.randint(1, days))
+                pull_in = plant == "CN" and fam == "adapter" and (y, m) == (2026, 10)
+                for k in range(rng.randint(2, 4) + (4 if pull_in else 0)):
+                    # E3：C07 這個月大量追加並提前交期
+                    cust = "C07" if pull_in and k >= 2 else rng.choice(FAMILY_CUSTOMERS[fam])
+                    # 提前 7 天後的交期仍落在當月，事件才不會溢到上個月
+                    original = date(y, m, rng.randint(8 if pull_in else 1, days))
                     late = rng.random() < 0.06
                     shipped = original + timedelta(days=rng.randint(1, 6) if late else -rng.randint(0, 3))
                     promised = original - timedelta(days=7) if (plant == "CN" and cust == "C07" and (y, m) == (2026, 10)) else original

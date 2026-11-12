@@ -48,6 +48,12 @@ class Period(BaseModel):
     start: str = Field(alias="from", pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
     end: str = Field(alias="to", pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
 
+    @field_validator("start", "end", mode="before")
+    @classmethod
+    def _month(cls, v):
+        # 模型常給到日（2026-10-01）；期間以月為單位，只取年月
+        return v[:7] if isinstance(v, str) and len(v) == 10 and v[4] == "-" and v[7] == "-" else v
+
 
 class Compare(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -69,6 +75,11 @@ class QuerySpec(BaseModel):
     compare: Compare | None = None
     sort: Sort | None = None
     limit: int = Field(default=20, ge=1, le=50)
+
+    @field_validator("metrics", "group_by", mode="before")
+    @classmethod
+    def _lower(cls, v):
+        return [x.strip().lower() for x in v] if isinstance(v, list) else v
 
     @field_validator("filters")
     @classmethod
