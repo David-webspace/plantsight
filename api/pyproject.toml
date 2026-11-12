@@ -1,0 +1,19 @@
+[project]
+name = "plantsight-api"
+version = "0.1.0"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+    "pydantic-settings>=2.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pandas>=2.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
