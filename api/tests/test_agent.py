@@ -111,3 +111,10 @@ def test_explain_respects_scope(db):
         "metric": "yield", "by": "line", "filters": {"plant": ["VN"]},
         "base": {"from": "2026-07", "to": "2026-07"}, "current": {"from": "2026-08", "to": "2026-08"}})
     assert out.denied
+
+
+def test_numbers_without_any_tool_data_are_withheld(db):
+    # 模型被提醒後仍不查資料、直接編數字：強模型重答也一樣時，整段不給使用者
+    llm = FakeLLM(["VN-SMT2 良率 95.8%。", "VN-SMT2 良率 95.8%。", "VN-SMT2 良率 93.3%。", "VN-SMT2 良率 93.3%。"])
+    r = run_chat(db, llm, load_principal(db, "tw.smt1.lead"), "VN-SMT2 上個月良率是多少？")
+    assert not r.grounding_ok and "95.8" not in r.answer and "93.3" not in r.answer
