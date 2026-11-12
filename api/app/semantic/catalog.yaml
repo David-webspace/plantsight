@@ -1,0 +1,185 @@
+# 語意層：指標與維度的唯一定義來源。模型只能引用這裡的代碼；SQL 片段只出現在這個檔與編譯器，不會來自使用者或模型。
+#
+# facts：資料來源。from 為 FROM／JOIN 子句，valid 為「未被清理排除」的條件，
+#        dims 為這個來源可以分組或篩選的維度 → SQL 運算式，scope 為各種權限範圍要套用的欄位。
+# metrics：fact 指定來源；date 為期間歸屬欄位；kind 決定計算方式：
+#   sum    → SUM(expr)
+#   ratio  → SUM(num) / SUM(den) × scale（先加總再相除，不平均各月比率）
+#   fpy    → 各站通過率連乘：Π(1 − Σ不良 ÷ Σ檢驗)
+
+facts:
+  production:
+    from: >-
+      work_orders w JOIN lines l ON l.code = w.line JOIN parts p ON p.part_no = w.part_no
+    valid: w.excluded_reason IS NULL
+    reason: w.excluded_reason
+    dims: {plant: w.plant, line: w.line, business_group: l.business_group, product_family: p.family, part_no: w.part_no}
+    scope: {plant: w.plant, line: w.line, business_group: l.business_group}
+  inspection:
+    from: >-
+      inspections i JOIN work_orders w ON w.wo_no = i.wo_no JOIN lines l ON l.code = w.line
+      JOIN parts p ON p.part_no = w.part_no
+    valid: i.excluded_reason IS NULL AND w.excluded_reason IS NULL
+    reason: COALESCE(i.excluded_reason, w.excluded_reason)
+    dims: {plant: w.plant, line: w.line, business_group: l.business_group, product_family: p.family, part_no: w.part_no,
+           station: i.station}
+    scope: {plant: w.plant, line: w.line, business_group: l.business_group}
+  defect:
+    from: >-
+      defects d JOIN inspections i ON i.wo_no = d.wo_no AND i.station = d.station
+      JOIN work_orders w ON w.wo_no = d.wo_no JOIN lines l ON l.code = w.line JOIN parts p ON p.part_no = w.part_no
+      JOIN defect_codes c ON c.code = d.defect_code
+    valid: d.excluded_reason IS NULL AND i.excluded_reason IS NULL AND w.excluded_reason IS NULL
+    reason: COALESCE(d.excluded_reason, i.excluded_reason, w.excluded_reason)
+    dims: {plant: w.plant, line: w.line, business_group: l.business_group, product_family: p.family, part_no: w.part_no,
+           station: d.station, defect_category: c.category, defect_code: d.defect_code}
+    scope: {plant: w.plant, line: w.line, business_group: l.business_group}
+  shipment:
+    from: shipments s JOIN parts p ON p.part_no = s.part_no JOIN customers cu ON cu.customer_id = s.customer_id
+    valid: s.excluded_reason IS NULL
+    reason: s.excluded_reason
+    dims: {plant: s.plant, business_group: p.business_group, product_family: p.family, part_no: s.part_no,
+           customer: s.customer_id}
+    scope: {plant: s.plant, business_group: p.business_group}
+  supply:
+    from: supplier_lots t JOIN suppliers su ON su.supplier_id = t.supplier_id
+    valid: t.excluded_reason IS NULL
+    reason: t.excluded_reason
+    dims: {plant: t.plant, supplier: t.supplier_id, material: su.material}
+    scope: {plant: t.plant}
+
+dimensions:
+  plant: {label: 廠區}
+  line: {label: 產線}
+  business_group: {label: 事業群}
+  product_family: {label: 產品族}
+  part_no: {label: 料號}
+  station: {label: 檢驗站}
+  defect_category: {label: 不良類別}
+  defect_code: {label: 不良代碼}
+  customer: {label: 客戶, names: customers}    # 名稱為敏感資料，有權限才附上
+  supplier: {label: 供應商, names: suppliers}
+  material: {label: 材料}
+
+metrics:
+  input_qty:
+    label: 投入數
+    fact: production
+    date: w.complete_date
+    kind: sum
+    expr: w.input_qty
+    unit: 件
+    decimals: 0
+    basis: 依工單完工日歸屬期間
+  good_qty:
+    label: 良品數
+    fact: production
+    date: w.complete_date
+    kind: sum
+    expr: w.good_qty
+    unit: 件
+    decimals: 0
+    basis: 依工單完工日歸屬期間
+  scrap_qty:
+    label: 報廢數
+    fact: production
+    date: w.complete_date
+    kind: sum
+    expr: w.scrap_qty
+    unit: 件
+    decimals: 0
+    basis: 依工單完工日歸屬期間
+  yield:
+    label: 良率
+    fact: production
+    date: w.complete_date
+    kind: ratio
+    num: w.good_qty
+    den: w.input_qty
+    scale: 100
+    unit: "%"
+    decimals: 1
+    basis: 良品數 ÷ 投入數，先加總再相除；依工單完工日歸屬期間
+    target: {metric: yield, scope: line}
+  scrap_cost:
+    label: 報廢金額
+    fact: production
+    date: w.complete_date
+    kind: sum
+    expr: w.scrap_qty * sc.unit_cost_twd
+    join: JOIN standard_costs sc ON sc.part_no = w.part_no AND sc.period = to_char(w.complete_date, 'YYYY-MM')
+    unit: 新台幣元
+    decimals: 0
+    confidential: true
+    basis: 報廢數 × 完工當月標準成本
+  dppm:
+    label: 不良率
+    fact: inspection
+    date: i.inspect_date
+    kind: ratio
+    num: i.defect_qty
+    den: i.inspected_qty
+    scale: 1000000
+    unit: ppm
+    decimals: 0
+    basis: 各站不良數合計 ÷ 檢驗數合計 × 1,000,000；依檢驗日歸屬期間
+  fpy:
+    label: 直通率
+    fact: inspection
+    date: i.inspect_date
+    kind: fpy
+    scale: 100
+    unit: "%"
+    decimals: 1
+    basis: ICT、FCT、OQC 各站通過率相乘；依檢驗日歸屬期間
+  defect_qty:
+    label: 不良數
+    fact: defect
+    date: i.inspect_date
+    kind: sum
+    expr: d.qty
+    unit: 件
+    decimals: 0
+    basis: 不良明細數量合計（可依不良類別、代碼拆分）；依檢驗日歸屬期間
+  shipped_qty:
+    label: 出貨量
+    fact: shipment
+    date: s.shipped_date
+    kind: sum
+    expr: s.qty
+    unit: 件
+    decimals: 0
+    basis: 依實際出貨日歸屬期間
+  otd:
+    label: 準交率
+    fact: shipment
+    date: s.promised_date
+    kind: ratio
+    num: "CASE WHEN s.shipped_date <= s.promised_date THEN 1 ELSE 0 END"
+    den: "CASE WHEN s.promised_date IS NOT NULL THEN 1 ELSE 0 END"
+    scale: 100
+    unit: "%"
+    decimals: 1
+    basis: 承諾交期當天或之前出貨的訂單數 ÷ 有承諾交期的訂單數；依承諾交期歸屬期間，缺交期的訂單不計
+    missing: {where: s.promised_date IS NULL, date: s.shipped_date, label: promised_missing}
+    target: {metric: otd, scope: plant}
+  received_qty:
+    label: 進料量
+    fact: supply
+    date: t.received_date
+    kind: sum
+    expr: t.qty
+    unit: 件
+    decimals: 0
+    basis: 依收料日歸屬期間
+  incoming_reject_rate:
+    label: 進料不良率
+    fact: supply
+    date: t.received_date
+    kind: ratio
+    num: t.rejected_qty
+    den: t.qty
+    scale: 100
+    unit: "%"
+    decimals: 2
+    basis: 進料不良數 ÷ 進料數；依收料日歸屬期間

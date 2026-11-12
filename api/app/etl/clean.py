@@ -16,6 +16,7 @@ from sqlalchemy import delete, insert, select, text
 from sqlalchemy.orm import Session
 
 from app import models as m
+from app.auth import DEMO_USERS
 from app.config import settings
 from app.db import SessionLocal
 
@@ -241,6 +242,10 @@ def run_cleaning(db: Session) -> dict:
     for model, rows in ((m.WorkOrder, wos), (m.Inspection, inspections), (m.Defect, defects), (m.Shipment, shipments),
                         (m.SupplierLot, lots), (m.StandardCost, costs), (m.Target, targets)):
         db.execute(insert(model), rows)
+
+    for username, name, role, kind, value in DEMO_USERS:
+        db.execute(text("""INSERT INTO users (username, name, role, scope_kind, scope_value) VALUES (:u, :n, :r, :k, :v)
+                           ON CONFLICT (username) DO NOTHING"""), {"u": username, "n": name, "r": role, "k": kind, "v": value})
 
     for item in run.reviews.values():
         db.execute(text("""

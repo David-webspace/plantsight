@@ -30,3 +30,9 @@ def report(db):
 @pytest.fixture
 def manifest():
     return json.loads((settings.data_dir / "raw" / "manifest.json").read_text())
+
+
+@pytest.fixture(scope="module")
+def db_module():
+    with SessionLocal() as s:
+        yield s

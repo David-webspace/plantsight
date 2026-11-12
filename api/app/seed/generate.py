@@ -86,13 +86,18 @@ def generate(rng: random.Random) -> dict[str, list[dict]]:
                             "complete_date": done.isoformat(), "input_qty": n, "good_qty": good, "scrap_qty": n - good})
                 planned.append(base + part_offset[part] + line_offset[line])
                 fails = n - good
-                ict, fct, oqc = (round(fails * 0.5), round(fails * 0.35), 0)
+                # E1 多出來的不良集中在 ICT 的焊接
+                ict, fct = (round(fails * 0.8), round(fails * 0.12)) if e1(line, y, m) else (round(fails * 0.5), round(fails * 0.35))
                 oqc = fails - ict - fct
+                # 重工：ICT 抓到、修好後回流的不良，算進直通率但不算報廢，所以直通率會低於良率
+                rework = round(n * rng.uniform(0.003, 0.012))
                 inspected = n
-                for station, d_qty, d in (("ICT", ict, start), ("FCT", fct, start + timedelta(days=1)), ("OQC", oqc, done)):
+                for station, scrap_here, rew, d in (("ICT", ict, rework, start), ("FCT", fct, 0, start + timedelta(days=1)),
+                                                    ("OQC", oqc, 0, done)):
+                    d_qty = scrap_here + rew
                     inspections.append({"wo_no": wo, "station": station, "inspect_date": d.isoformat(),
                                         "inspected_qty": inspected, "defect_qty": d_qty})
-                    inspected -= d_qty
+                    inspected -= scrap_here
                     if d_qty == 0:
                         continue
                     by_code: dict[str, int] = {}

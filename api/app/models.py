@@ -150,6 +150,18 @@ class ReviewItem(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class User(Base):
+    """登入者與權限範圍。scope_kind：all／business_group／plant／line；範圍內的資料由編譯器在 SQL 層過濾。"""
+
+    __tablename__ = "users"
+    username: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(32))
+    role: Mapped[str] = mapped_column(String(16))
+    scope_kind: Mapped[str] = mapped_column(String(16))
+    scope_value: Mapped[str | None] = mapped_column(String(16))
+    password_hash: Mapped[str | None] = mapped_column(String(128))
+
+
 class CleaningRun(Base):
     __tablename__ = "cleaning_runs"
     id: Mapped[int] = mapped_column(primary_key=True)
