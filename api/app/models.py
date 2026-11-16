@@ -202,6 +202,60 @@ class AuditLog(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     grounding_ok: Mapped[bool | None]
     conversation_id: Mapped[int | None] = mapped_column(ForeignKey("conversations.id"))
+    channel: Mapped[str] = mapped_column(String(8), default="web", server_default="web")
+    client_name: Mapped[str | None] = mapped_column(String(128))
+
+
+# ── MCP 的 OAuth 授權。權杖與授權碼只存 SHA-256：資料庫外洩也無法拿來呼叫 ──
+
+
+class OAuthClient(Base):
+    __tablename__ = "oauth_clients"
+    client_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    info: Mapped[dict] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OAuthRequest(Base):
+    """/authorize 收到、等待使用者在網頁同意的請求。"""
+
+    __tablename__ = "oauth_requests"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    client_id: Mapped[str] = mapped_column(ForeignKey("oauth_clients.client_id", ondelete="CASCADE"))
+    params: Mapped[dict] = mapped_column(JSONB)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OAuthCode(Base):
+    __tablename__ = "oauth_codes"
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    client_id: Mapped[str] = mapped_column(ForeignKey("oauth_clients.client_id", ondelete="CASCADE"))
+    username: Mapped[str] = mapped_column(ForeignKey("users.username", ondelete="CASCADE"))
+    params: Mapped[dict] = mapped_column(JSONB)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OAuthGrant(Base):
+    """一次「使用者同意某個 client」= 一條連線；撤銷它，底下所有權杖一起失效。"""
+
+    __tablename__ = "oauth_grants"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(ForeignKey("users.username", ondelete="CASCADE"), index=True)
+    client_id: Mapped[str] = mapped_column(ForeignKey("oauth_clients.client_id", ondelete="CASCADE"))
+    scopes: Mapped[list] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoke_reason: Mapped[str | None] = mapped_column(String(32))
+
+
+class OAuthToken(Base):
+    __tablename__ = "oauth_tokens"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    grant_id: Mapped[int] = mapped_column(ForeignKey("oauth_grants.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(8))  # access／refresh
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # refresh 換發過就記下，重用即視為外洩
 
 
 class CleaningRun(Base):

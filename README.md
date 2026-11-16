@@ -18,6 +18,7 @@ hr360 處理的是**交易型**問題（查餘額、算加班費、建假單）�
 | 「為什麼下降？」 | 沒有這類問題 | **變化拆解**：把整體變化拆成組合效應（產品組合改變）與比率效應（各組本身變差），指出貢獻最大的一組 |
 | 原始資料是髒的 | 人事資料乾淨 | **清理管線 + 人工確認**：能自動判斷的自動修正，不能的進待確認清單；核准後套用建議並重新計算 |
 | 怎麼證明數字對 | 標準答案人工驗算 | **獨立對照組**：評測用 pandas 從資料表另外重算一次，不經過被測的語意層 |
+| 外部 Agent 怎麼接 | 使用者在網頁產生個人權杖，貼進 client 設定 | **MCP + OAuth**：AI 工具自動找到授權伺服器，跳出瀏覽器讓員工用自己的帳號登入同意，不用碰權杖 |
 
 ## 啟動
 
@@ -153,6 +154,42 @@ docker compose up -d --build
 - 回答中的數字必須能在工具結果或使用者的問題中找到，否則換強模型重答；仍核對不到就加註提醒。
 - 沒有任何工具回傳資料，卻寫出數字或對指標下結論（例如「東莞廠良率最高」），整段回答不給使用者。
 
+## 接到你的 Agent（MCP）
+
+語意層不只給 plantsight 自己的聊天介面用。任何支援 MCP 授權的 AI 工具都能以**使用者本人的身分**接上，看到的範圍和網頁版相同，權限、口徑、稽核都是同一套。
+
+```bash
+claude mcp add --transport http plantsight http://localhost:8370/mcp
+```
+
+加入後，AI 工具會開啟瀏覽器請你登入 plantsight 並同意，之後就能直接問「上個月台灣廠哪條線良率最差」。完整流程已用 MCP 官方 Python SDK 的 OAuth client 端對端驗證（自動發現、註冊、瀏覽器同意、換權杖、呼叫工具、越權被拒）；其他 client 的實作細節可能不同。登入後左側「連接 AI 工具」頁列出已連接的工具，可以隨時中斷。
+
+![同意頁：列出是哪個工具、以誰的身分、能做什麼、授權後回到哪裡](docs/images/mcp-consent.png)
+
+流程依 MCP 授權規格（OAuth 2.1）：
+
+1. 未帶權杖呼叫 `/mcp` → 401，回應標頭指向授權資訊（RFC 9728）
+2. AI 工具動態註冊（RFC 7591），以 PKCE 發起授權，並指定權杖只用在 plantsight 的 `/mcp`（RFC 8707）
+3. 員工在 plantsight 網頁登入、按同意 → 授權碼回到 AI 工具 → 換成 access token（1 小時）與 refresh token（30 天，每次換發都輪替）
+4. 每次工具呼叫依權杖重新載入使用者的角色與範圍，走和網頁聊天同一套工具與語意層
+
+只開放三個唯讀工具：`list_metrics`、`query_metrics`、`explain_change`。品保核准待確認資料會改變所有人看到的指標，必須由人在畫面上確認，不透過 MCP 開放。
+
+| 安全設計 | 不這樣做會怎樣 |
+|---|---|
+| 同意頁列出工具名稱與授權後回到的位址，提醒「只有自己發起的連線才按同意」 | 動態註冊誰都能註冊；攻擊者取名「Claude」，傳連結騙員工授權 |
+| redirect 只接受 https 或本機 loopback，且必須和註冊時完全相同 | 授權碼被導到攻擊者的網站 |
+| 同意與中斷連線只接受從 plantsight 網頁送出的請求（檢查 Origin） | 惡意網頁趁員工已登入，自動替他按同意 |
+| 授權碼只能用一次、5 分鐘過期；PKCE 必填 | 授權碼在轉址途中被截走就能換權杖 |
+| 權杖只存雜湊；換發過的 refresh token 再出現，整條連線作廢 | 資料庫外洩可直接冒用；被偷的 refresh token 長期有效 |
+| 權杖綁定 plantsight 的 `/mcp`，其他 resource 一律拒絕 | 別的服務拿到的權杖被拿來打 plantsight |
+| 每條連線每分鐘最多 30 次呼叫 | Agent 迴圈失控把資料庫打滿 |
+| 每次呼叫記入稽核，標明來源 MCP 與工具名稱 | 出事時分不出是網頁還是哪個外部工具查的 |
+
+- 部署到其他主機時，在 `.env` 設定 `PUBLIC_API_URL`、`PUBLIC_WEB_URL` 為對外網址；`MCP_DYNAMIC_REGISTRATION=false` 可關閉動態註冊。
+- 授權伺服器目前由 plantsight 自己擔任。接公司的 Entra ID 等身分系統時，把 `app/mcp/oauth.py` 換成驗證外部權杖的 `TokenVerifier`，plantsight 只當資源伺服器，工具與權限不用改。
+- claude.ai 網頁版的自訂連接器需要公開的 HTTPS 網址，本機示範沒有涵蓋。
+
 ## 評測
 
 評測集 [api/eval/cases.yaml](api/eval/cases.yaml) 共 38 題：單一指標、排名、與目標比較、趨勢、為什麼（變化拆解）、追問、角色範圍、資料品質說明、條件不合理，以及 10 題越權與提示詞注入。
@@ -178,7 +215,7 @@ docker compose exec api python -m app.evals.run --models fast,strong --repeats 2
 ```bash
 cd api && uv sync
 set -a && . ../.env && set +a
-uv run pytest                                                 # 32 項，假模型、不花錢
+uv run pytest                                                 # 41 項，假模型、不花錢（含 9 項 MCP 授權與攻擊情境）
 uv run python -m app.agent.cli --user tw.manager "上個月哪條線良率最差？"
 ```
 

@@ -10,6 +10,7 @@ export function navItems(me: Me): Item[] {
   if (me.is_admin) return [{ href: "/admin", label: "稽核" }, { href: "/data", label: "資料品質" }];
   const items: Item[] = [{ href: "/", label: "總覽" }];
   if (me.can_review) items.push({ href: "/data", label: "資料品質" });
+  if (me.can_query) items.push({ href: "/connections", label: "連接 AI 工具" });
   return items;
 }
 

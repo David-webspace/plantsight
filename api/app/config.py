@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     llm_reasoning_effort: str | None = None
     llm_pricing_file: str = str(Path(__file__).resolve().parents[1] / "config" / "pricing.yaml")  # api/config，容器內為 /app/config
 
+    # MCP（OAuth）：client 與瀏覽器看到的對外網址。API 同時是授權伺服器（issuer）與資源伺服器（/mcp）
+    public_api_url: str = "http://localhost:8370"
+    public_web_url: str = "http://localhost:3100"
+    mcp_dynamic_registration: bool = True  # 關掉後只接受預先登記的 client
+    mcp_rate_per_minute: int = 30
+
     app_today: date | None = None  # 示範資料以 2026-11-10 為基準；未設定時用實際日期
 
 

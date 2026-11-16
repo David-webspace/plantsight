@@ -30,12 +30,13 @@ def cost_usd(model_usage: dict[str, Usage]) -> float | None:
 def write(db: Session, p: Principal | None, event: str, *, question: str | None = None, model: str | None = None,
           tools: list | None = None, denied: bool = False, deny_reason: str | None = None, usage: Usage | None = None,
           cost: float | None = None, latency_ms: int | None = None, grounding_ok: bool | None = None,
-          conversation_id: int | None = None) -> None:
+          conversation_id: int | None = None, channel: str = "web", client_name: str | None = None) -> None:
     u = usage or Usage()
     db.execute(insert(AuditLog), {
         "username": p.username if p else None, "role": p.role if p else None, "event": event, "question": question,
         "model": model, "tools": tools, "denied": denied, "deny_reason": deny_reason, "input_tokens": u.input,
         "output_tokens": u.output, "cache_read_tokens": u.cache_read, "cache_write_tokens": u.cache_write,
         "cost_usd": cost, "latency_ms": latency_ms, "grounding_ok": grounding_ok, "conversation_id": conversation_id,
+        "channel": channel, "client_name": client_name,
     })
     db.commit()

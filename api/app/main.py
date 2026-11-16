@@ -2,8 +2,9 @@
 
 import io
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -20,11 +21,22 @@ from app.auth import COOKIE, LOGIN_FAILED, Principal, authenticate, current_prin
 from app.config import TZ, settings, today
 from app.db import engine, get_db
 from app.etl.review import ReviewError, decide
+from app.mcp import oauth
+from app.mcp.server import http_app as mcp_http_app
+from app.mcp.server import mcp
 from app.ratelimit import SlidingWindow
 from app.semantic.query import AccessDenied, QuerySpec, SpecError, run_query
 
 log = logging.getLogger("plantsight")
-app = FastAPI(title="plantsight", docs_url="/docs" if settings.enable_api_docs else None,
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(title="plantsight", lifespan=lifespan, docs_url="/docs" if settings.enable_api_docs else None,
               redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
 login_limit = SlidingWindow(10, 300)
 chat_limit = SlidingWindow(settings.chat_rate_per_minute, 60)
@@ -224,7 +236,7 @@ def review_decide(item_id: str, body: DecisionIn, p: Principal = Depends(require
 
 @app.get("/api/admin/audit")
 def audit_log(event: str | None = Query(None, max_length=32), user: str | None = Query(None, max_length=32),
-              flagged: bool = False, _: Principal = Depends(require_role("sysadmin")), db: Session = Depends(get_db)) -> dict:
+              channel: str | None = Query(None, pattern="^(web|mcp)$"), flagged: bool = False, _: Principal = Depends(require_role("sysadmin")), db: Session = Depends(get_db)) -> dict:
     where, params = [], {}
     if event:
         where.append("event = :event")
@@ -232,10 +244,13 @@ def audit_log(event: str | None = Query(None, max_length=32), user: str | None =
     if user:
         where.append("username ILIKE :user")
         params["user"] = f"%{user.strip()}%"
+    if channel:
+        where.append("channel = :channel")
+        params["channel"] = channel
     if flagged:
         where.append("(denied OR grounding_ok = false)")
     rows = db.execute(text(f"""SELECT ts, username, role, event, question, model, tools, denied, deny_reason, input_tokens,
-                                      output_tokens, cache_read_tokens, cost_usd, latency_ms, grounding_ok FROM audit_log
+                                      output_tokens, cache_read_tokens, cost_usd, latency_ms, grounding_ok, channel, client_name FROM audit_log
                                {"WHERE " + " AND ".join(where) if where else ""} ORDER BY id DESC LIMIT 200"""), params).mappings().all()
     summary = db.execute(text("""
         SELECT model, COUNT(*) AS n, AVG(input_tokens + cache_read_tokens + cache_write_tokens)::int AS avg_input,
@@ -243,3 +258,65 @@ def audit_log(event: str | None = Query(None, max_length=32), user: str | None =
                SUM(CASE WHEN denied THEN 1 ELSE 0 END) AS denied, SUM(CASE WHEN grounding_ok = false THEN 1 ELSE 0 END) AS ungrounded
         FROM audit_log WHERE event = 'chat' GROUP BY model""")).mappings().all()
     return {"summary": [dict(s) for s in summary], "events": [dict(r) for r in rows]}
+
+
+# ── 連接 AI 工具（MCP 的 OAuth 同意與連線管理，以網頁登入身分操作） ───────────
+
+
+def same_origin(request: Request) -> None:
+    # 同意會發出可查資料的權杖：只接受從 plantsight 網頁本身送出的請求。
+    # 不檢查的話，惡意網頁可以趁員工已登入，自動送出同意（CSRF；同一台主機不同埠在 SameSite 規則下算同站，cookie 會帶上）。
+    if request.headers.get("origin") != settings.public_web_url.rstrip("/"):
+        raise HTTPException(403, "請從 plantsight 網頁操作")
+
+
+@app.get("/api/oauth/requests/{rid}")
+def oauth_request(rid: str, p: Principal = Depends(current_principal), db: Session = Depends(get_db)) -> dict:
+    try:
+        req, info = oauth.pending(db, rid)
+    except oauth.RequestGone:
+        raise HTTPException(404, "這個連線要求已過期或不存在，請回到 AI 工具重新連線")
+    return {"client_name": oauth.client_label(info), "redirect_host": urlparse(req.params["redirect_uri"]).netloc,
+            "user": me_view(p), "scope": "唯讀查詢生產數據（良率、不良率、準交率等），範圍和你在網頁看到的相同"}
+
+
+@app.post("/api/oauth/requests/{rid}/approve")
+def oauth_approve(rid: str, request: Request, p: Principal = Depends(current_principal), db: Session = Depends(get_db)) -> dict:
+    same_origin(request)
+    if not p.policy.facts:
+        raise HTTPException(403, "這個帳號沒有可查詢的生產數據，無法連接 AI 工具")
+    try:
+        req, info = oauth.pending(db, rid)
+        redirect = oauth.approve(db, rid, p.username)
+    except oauth.RequestGone:
+        raise HTTPException(404, "這個連線要求已過期或不存在，請回到 AI 工具重新連線")
+    audit.write(db, p, "mcp_connect", question=oauth.client_label(info), channel="mcp", client_name=oauth.client_label(info))
+    return {"redirect": redirect}
+
+
+@app.post("/api/oauth/requests/{rid}/deny")
+def oauth_deny(rid: str, request: Request, _: Principal = Depends(current_principal), db: Session = Depends(get_db)) -> dict:
+    same_origin(request)
+    try:
+        return {"redirect": oauth.deny(db, rid)}
+    except oauth.RequestGone:
+        raise HTTPException(404, "這個連線要求已過期或不存在")
+
+
+@app.get("/api/oauth/grants")
+def oauth_grants(p: Principal = Depends(current_principal), db: Session = Depends(get_db)) -> dict:
+    return {"grants": oauth.grants(db, p.username), "mcp_url": oauth.RESOURCE, "can_connect": bool(p.policy.facts)}
+
+
+@app.post("/api/oauth/grants/{grant_id}/revoke")
+def oauth_revoke(grant_id: int, request: Request, p: Principal = Depends(current_principal), db: Session = Depends(get_db)) -> dict:
+    same_origin(request)
+    client = oauth.revoke_own(db, p.username, grant_id)
+    if client is None:
+        raise HTTPException(404, "找不到這個連線")
+    audit.write(db, p, "mcp_revoke", question=client, channel="mcp", client_name=client)
+    return {"ok": True}
+
+
+# MCP 與 OAuth 端點（/mcp、/authorize、/token、/register、/revoke、/.well-known/*）；放在最後，前面的 API 路由優先比對
+app.mount("/", mcp_http_app)

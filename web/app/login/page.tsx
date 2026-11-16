@@ -33,7 +33,10 @@ export default function LoginPage() {
     if (!res.ok) return setError(((await res.json().catch(() => ({}))) as { detail?: string }).detail ?? "登入失敗");
     const me = (await res.json()) as { is_admin: boolean };
     // 同登出：整頁載入，確保不沿用前一位使用者留在瀏覽器記憶體裡的狀態
-    window.location.replace(me.is_admin ? "/admin" : "/");
+    // next 只接受站內路徑，否則登入頁會變成把人導去任意網站的跳板（//evil、/\evil 在瀏覽器裡都會被當成外部網址）
+    const next = new URLSearchParams(window.location.search).get("next");
+    const safe = next && /^\/(?![/\\])/.test(next) ? next : null;
+    window.location.replace(safe ?? (me.is_admin ? "/admin" : "/"));
   }
 
   return (

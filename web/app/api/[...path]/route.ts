@@ -6,7 +6,7 @@ async function forward(request: Request, ctx: RouteContext<"/api/[...path]">) {
   const url = new URL(request.url);
   const target = `${BACKEND}/api/${path.map(encodeURIComponent).join("/")}${url.search}`;
   const headers = new Headers();
-  for (const h of ["cookie", "content-type"]) {
+  for (const h of ["cookie", "content-type", "origin"]) {
     const v = request.headers.get(h);
     if (v) headers.set(h, v);
   }

@@ -6,11 +6,11 @@ type Summary = { model: string; n: number; avg_input: number; avg_output: number
 type Event = {
   ts: string; username: string | null; role: string | null; event: string; question: string | null; model: string | null;
   denied: boolean; deny_reason: string | null; input_tokens: number; output_tokens: number; cache_read_tokens: number;
-  latency_ms: number | null; grounding_ok: boolean | null;
+  latency_ms: number | null; grounding_ok: boolean | null; channel: string; client_name: string | null;
 };
 
 type Params = Promise<Record<string, string | string[] | undefined>>;
-const FILTERS = ["event", "user", "flagged"] as const;
+const FILTERS = ["event", "user", "channel", "flagged"] as const;
 const FIELD = "rounded border border-rule bg-paper px-2 py-1.5 text-sm focus:border-river focus:outline-none";
 
 async function Audit({ searchParams }: { searchParams: Params }) {
@@ -51,6 +51,11 @@ async function Audit({ searchParams }: { searchParams: Params }) {
             <option value="">全部事件</option>
             {Object.entries(EVENT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
+          <select name="channel" defaultValue={f.channel} aria-label="來源" className={FIELD}>
+            <option value="">全部來源</option>
+            <option value="web">網頁</option>
+            <option value="mcp">外部 AI 工具（MCP）</option>
+          </select>
           <input name="user" defaultValue={f.user} placeholder="帳號" aria-label="帳號" maxLength={32} className={`${FIELD} w-36 min-w-0`} />
           <label className="flex items-center gap-1.5 text-sm text-muted">
             <input type="checkbox" name="flagged" value="true" defaultChecked={f.flagged === "true"} />只看拒絕與數字未核對
@@ -62,7 +67,7 @@ async function Audit({ searchParams }: { searchParams: Params }) {
         <div className="overflow-x-auto rounded-md border border-rule bg-sheet">
           <table className="w-full min-w-[60rem] text-sm">
             <thead className="bg-paper text-left text-muted">
-              <tr>{["時間", "帳號", "事件", "內容", "模型", "tokens 入/快取/出", "延遲", "結果"].map((h) => <th key={h} className="px-3 py-2 font-normal whitespace-nowrap">{h}</th>)}</tr>
+              <tr>{["時間", "帳號", "事件", "內容", "模型／來源", "tokens 入/快取/出", "延遲", "結果"].map((h) => <th key={h} className="px-3 py-2 font-normal whitespace-nowrap">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-rule">
               {events.map((e, i) => (
@@ -71,7 +76,7 @@ async function Audit({ searchParams }: { searchParams: Params }) {
                   <td className="px-3 py-2 whitespace-nowrap">{e.username ?? "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap" title={e.event}>{label(EVENT_LABEL, e.event)}</td>
                   <td className="max-w-72 truncate px-3 py-2" title={e.question ?? ""}>{e.question ?? ""}</td>
-                  <td className="px-3 py-2 text-xs whitespace-nowrap text-muted">{e.model ?? ""}</td>
+                  <td className="px-3 py-2 text-xs whitespace-nowrap text-muted">{e.channel === "mcp" ? `MCP・${e.client_name ?? ""}` : e.model ?? ""}</td>
                   <td className="num px-3 py-2 text-xs whitespace-nowrap">{e.input_tokens}/{e.cache_read_tokens}/{e.output_tokens}</td>
                   <td className="num px-3 py-2 text-xs whitespace-nowrap">{e.latency_ms ? `${(e.latency_ms / 1000).toFixed(1)}s` : ""}</td>
                   <td className="max-w-64 px-3 py-2 text-xs">

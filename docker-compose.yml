@@ -20,6 +20,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://plantsight:${POSTGRES_PASSWORD}@db:5432/plantsight
+      # MCP 的 OAuth：AI 工具與瀏覽器看到的網址（跟著連接埠設定走；部署到其他主機時在 .env 覆寫）
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:${API_PORT:-8370}}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:${WEB_PORT:-3100}}
     ports:
       - "127.0.0.1:${API_PORT:-8370}:8000"
     extra_hosts:
